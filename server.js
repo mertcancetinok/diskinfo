@@ -22,37 +22,44 @@ const authenticate = (req, res, next) => {
 
 // Disk kullanımını döndüren API
 app.get("/disk-usage", authenticate, (req, res) => {
-    const isMac = os.platform() === "darwin"; // Mac mi, Linux mu?
+    const isMac = os.platform() === "darwin";
     const command = isMac
-        ? "df -k | awk '{print $2,$3,$4}'"  // Mac için (Kilobyte cinsinden)
-        : "df -k --output=size,used,avail"; // Linux için
+        ? "df -k | awk '{print $1,$2,$3,$4}'"  // Added $1 for device name
+        : "df -k --output=source,size,used,avail";
 
     exec(command, (error, stdout) => {
         if (error) {
             return res.status(500).json({ error: "Disk kullanım bilgisi alınamadı" });
         }
 
-        const lines = stdout.trim().split("\n").slice(1); // Başlık satırını çıkar
-        let totalSize = 0, totalUsed = 0, totalAvailable = 0;
+        const lines = stdout.trim().split("\n").slice(1);
+        let largestDisk = { size: 0, used: 0, available: 0, device: '' };
 
         lines.forEach(line => {
             const cols = line.trim().split(/\s+/);
-            if (cols.length >= 3) {
-                totalSize += parseInt(cols[0], 10) || 0;  // Toplam boyut (KB)
-                totalUsed += parseInt(cols[1], 10) || 0;  // Kullanılan alan (KB)
-                totalAvailable += parseInt(cols[2], 10) || 0; // Boş alan (KB)
+            if (cols.length >= 4) {
+                const size = parseInt(cols[1], 10) || 0;
+                if (size > largestDisk.size) {
+                    largestDisk = {
+                        device: cols[0],
+                        size: size,
+                        used: parseInt(cols[2], 10) || 0,
+                        available: parseInt(cols[3], 10) || 0
+                    };
+                }
             }
         });
 
-        // Kullanım yüzdesini hesapla
-        const usagePercent = totalSize ? ((totalUsed / totalSize) * 100).toFixed(2) : "0";
+        const usagePercent = largestDisk.size ? 
+            ((largestDisk.used / largestDisk.size) * 100).toFixed(2) : "0";
 
         res.json({
             success: true,
-            total: {
-                size: `${(totalSize / 1024 / 1024).toFixed(2)} GB`,
-                used: `${(totalUsed / 1024 / 1024).toFixed(2)} GB`,
-                available: `${(totalAvailable / 1024 / 1024).toFixed(2)} GB`,
+            disk: {
+                device: largestDisk.device,
+                size: `${(largestDisk.size / 1024 / 1024).toFixed(2)} GB`,
+                used: `${(largestDisk.used / 1024 / 1024).toFixed(2)} GB`,
+                available: `${(largestDisk.available / 1024 / 1024).toFixed(2)} GB`,
                 usage: `${usagePercent}%`
             }
         });
